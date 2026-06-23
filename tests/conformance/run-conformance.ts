@@ -146,10 +146,17 @@ function describeAdapter(fixture: AdapterFixture): void {
           expect(typeof entry.cost.output).toBe("number");
           expect(typeof entry.cost.cacheRead).toBe("number");
           expect(typeof entry.cost.cacheWrite).toBe("number");
-          expect(typeof entry.contextWindow).toBe("number");
-          expect(entry.contextWindow).toBeGreaterThan(0);
-          expect(typeof entry.maxTokens).toBe("number");
-          expect(entry.maxTokens).toBeGreaterThan(0);
+          // contextWindow and maxTokens are now optional — local adapters may omit
+          // them when the backend does not report these values.  Cloud adapters
+          // (OpenAI, Anthropic) still provide documented per-model values.
+          if (entry.contextWindow !== undefined) {
+            expect(typeof entry.contextWindow).toBe("number");
+            expect(entry.contextWindow).toBeGreaterThan(0);
+          }
+          if (entry.maxTokens !== undefined) {
+            expect(typeof entry.maxTokens).toBe("number");
+            expect(entry.maxTokens).toBeGreaterThan(0);
+          }
           expect(typeof entry.reasoning).toBe("boolean");
         }
       });
