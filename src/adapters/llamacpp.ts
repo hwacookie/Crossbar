@@ -25,6 +25,7 @@ import type {
 interface PropsBody {
   default_generation_settings?: {
     n_ctx?: number;
+    n_predict?: number;
   };
   build_info?: unknown;
   model_path?: string;
@@ -35,9 +36,25 @@ interface V1ModelsBody {
   data?: Array<{
     id: string;
     meta?: {
+      n_ctx?: number;
       n_ctx_train?: number;
     };
+    status?: {
+      args?: string[];
+      meta?: {
+        n_ctx?: number;
+      };
+    };
   }>;
+}
+
+/** Extract a single argument value from an args array, e.g. "--ctx-size" → "128000". */
+function extractArg(args: string[] | undefined, name: string): string | undefined {
+  if (!args) return undefined;
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === name) return args[i + 1];
+  }
+  return undefined;
 }
 
 function basename(path: string): string {
@@ -125,6 +142,9 @@ class LlamacppAdapter implements BackendAdapter {
     const hasVision = Array.isArray(props?.modalities) &&
       props!.modalities!.some((m) => m.toLowerCase().includes("vision") || m.toLowerCase().includes("image"));
 
+    // Fetch n-predict from /props (global default, may be 0)
+    const propsNPredict = props?.default_generation_settings?.n_predict;
+
     return data.map((entry) => {
       const descriptor: ModelDescriptor = {
         id: entry.id,
@@ -135,9 +155,24 @@ class LlamacppAdapter implements BackendAdapter {
       // Only set contextWindow when the backend reports it.
       // When undefined, Pi uses its own fallback (128k) for compaction
       // and no cap (POSITIVE_INFINITY) for maxTokens.
-      const ctx = propsNCtx ?? entry.meta?.n_ctx_train;
-      if (ctx !== undefined) {
+      // Priority: --ctx-size from status.args > meta.n_ctx > meta.n_ctx_train > /props n_ctx
+      const argCtx = extractArg(entry.status?.args, "--ctx-size");
+      const ctx =
+        (argCtx ? Number(argCtx) : undefined) ??
+        entry.meta?.n_ctx ??
+        entry.meta?.n_ctx_train ??
+        propsNCtx;
+      if (ctx !== undefined && ctx > 0) {
         descriptor.contextWindow = ctx;
+      }
+      // Extract n-predict for maxTokens.
+      // Priority: --n-predict from status.args > /props n_predict
+      const argPredict = extractArg(entry.status?.args, "--n-predict");
+      const maxTokens =
+        (argPredict ? Number(argPredict) : undefined) ??
+        propsNPredict;
+      if (maxTokens !== undefined && maxTokens > 0) {
+        descriptor.maxTokens = maxTokens;
       }
       return descriptor;
     });
@@ -206,12 +241,12 @@ class LlamacppAdapter implements BackendAdapter {
       compat: { supportsUsageInStreaming: true },
     } as unknown as PiModelEntry;
     // Only set contextWindow / maxTokens when the backend reports them.
-    // When omitted, Pi uses its own fallback (128k for contextWindow,
-    // no cap / POSITIVE_INFINITY for maxTokens).
-    if (model.contextWindow !== undefined) {
+    // Treat 0 as "not reported" — Pi's fallback (128k contextWindow,
+    // no cap for maxTokens) kicks in instead.
+    if (model.contextWindow !== undefined && model.contextWindow > 0) {
       entry.contextWindow = model.contextWindow;
     }
-    if (model.maxTokens !== undefined) {
+    if (model.maxTokens !== undefined && model.maxTokens > 0) {
       entry.maxTokens = model.maxTokens;
     }
     return entry;

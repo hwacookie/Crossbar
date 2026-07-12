@@ -84,7 +84,6 @@ class GenericAdapter implements BackendAdapter {
 
   /**
    * GET /v1/models → map data[].id to ModelDescriptor.
-   * Conservative defaults are applied (contextWindow 8192, maxTokens 4096, input ["text"]).
    * Common embedding/reranking model families are excluded from chat registration.
    * Throws on non-ok / 401 / status:0.
    */
@@ -105,7 +104,7 @@ class GenericAdapter implements BackendAdapter {
     if (r.status === 0) throw new Error("listModels failed: server unreachable (status 0)");
     if (!r.ok) throw new Error(`listModels failed: HTTP ${r.status}`);
 
-    const body = r.json as { data?: Array<{ id?: unknown }> } | undefined;
+    const body = r.json as { data?: Array<{ id?: unknown; max_completion_tokens?: number; context_length?: number; max_context_length?: number; context_window?: number }> } | undefined;
     if (!Array.isArray(body?.data)) return [];
 
     return body.data
@@ -115,6 +114,7 @@ class GenericAdapter implements BackendAdapter {
         const isEmbedding =
           /(^|[/:._-])(embed|embedding|bge|gte|e5|reranker)([/:._-]|$)/.test(normalizedId) ||
           normalizedId.includes("nomic-embed");
+
         const desc: ModelDescriptor = {
           id: item.id,
           name: item.id,
@@ -123,6 +123,25 @@ class GenericAdapter implements BackendAdapter {
           embeddings: isEmbedding,
           raw: item,
         };
+
+        // Only set maxTokens when the backend reports it.
+        if (typeof item.max_completion_tokens === "number" && item.max_completion_tokens > 0) {
+          desc.maxTokens = item.max_completion_tokens;
+        }
+
+        // Only set contextWindow when the backend reports it.
+        const ctx =
+          typeof item.context_window === "number" && item.context_window > 0
+            ? item.context_window
+            : typeof item.context_length === "number" && item.context_length > 0
+              ? item.context_length
+              : typeof item.max_context_length === "number" && item.max_context_length > 0
+                ? item.max_context_length
+                : undefined;
+        if (ctx !== undefined) {
+          desc.contextWindow = ctx;
+        }
+
         return desc;
       });
   }

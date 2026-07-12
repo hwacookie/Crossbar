@@ -61,13 +61,6 @@ interface OllamaPsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DEFAULT_CONTEXT_WINDOW = 8192;
-const DEFAULT_MAX_TOKENS = 4096;
-
-// ---------------------------------------------------------------------------
 // OllamaAdapter
 // ---------------------------------------------------------------------------
 
@@ -157,27 +150,35 @@ class OllamaAdapter implements BackendAdapter {
 
   /** Fetch /api/show for a single model and build its ModelDescriptor. */
   private async _fetchModelCaps(modelId: string, probe: Probe): Promise<ModelDescriptor> {
-    const defaults: ModelDescriptor = {
-      id: modelId,
-      name: modelId,
-      contextWindow: DEFAULT_CONTEXT_WINDOW,
-      maxTokens: DEFAULT_MAX_TOKENS,
-      input: ["text"],
-      reasoning: false,
-      tools: false,
-      embeddings: false,
-    };
-
     try {
       const r = await probe("/api/show", {
         method: "POST",
         body: JSON.stringify({ name: modelId }),
         headers: { "content-type": "application/json" },
       });
-      if (!r.ok) return defaults;
+      if (!r.ok) {
+        // /api/show might not exist or might error — fall back to minimal descriptor
+        return {
+          id: modelId,
+          name: modelId,
+          input: ["text"],
+          reasoning: false,
+          tools: false,
+          embeddings: false,
+        };
+      }
 
       const show = r.json as OllamaShowResponse | undefined;
-      if (!show) return defaults;
+      if (!show) {
+        return {
+          id: modelId,
+          name: modelId,
+          input: ["text"],
+          reasoning: false,
+          tools: false,
+          embeddings: false,
+        };
+      }
 
       const caps = show.capabilities ?? [];
       const hasVision = caps.includes("vision");
@@ -186,7 +187,7 @@ class OllamaAdapter implements BackendAdapter {
       const isEmbedding = caps.includes("embedding");
 
       // Extract context length from model_info: look for any key ending in ".context_length"
-      let contextWindow = DEFAULT_CONTEXT_WINDOW;
+      let contextWindow: number | undefined;
       if (show.model_info) {
         for (const [key, val] of Object.entries(show.model_info)) {
           if (key.endsWith(".context_length") && typeof val === "number" && val > 0) {
@@ -200,7 +201,6 @@ class OllamaAdapter implements BackendAdapter {
         id: modelId,
         name: modelId,
         contextWindow,
-        maxTokens: DEFAULT_MAX_TOKENS,
         input: hasVision ? ["text", "image"] : ["text"],
         reasoning: hasThinking,
         tools: hasTools,
@@ -208,8 +208,15 @@ class OllamaAdapter implements BackendAdapter {
         raw: show,
       };
     } catch {
-      // /api/show might not exist or might error — fall back to defaults
-      return defaults;
+      // /api/show might not exist or might error — fall back to minimal descriptor
+      return {
+        id: modelId,
+        name: modelId,
+        input: ["text"],
+        reasoning: false,
+        tools: false,
+        embeddings: false,
+      };
     }
   }
 

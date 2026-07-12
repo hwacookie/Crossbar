@@ -163,8 +163,7 @@ interface ProviderConfigInput {
   `pi install npm:@hypabolic/crossbar@<ver>` / `git:` / local path (`docs/packages.md`).
 - **Deps must be exact-pinned** — `scripts/check-pinned-deps.mjs` rejects `^`/`~`.
 - Peer deps: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`.
-- **`@hypabolic` npm scope is empty/available** (`@hypabolic/crossbar` → 404); unscoped `crossbar`
-  is taken → publish as **`@hypabolic/crossbar`**. (Verified against npm registry 2026-06-21.)
+- **`@hypabolic` npm scope** → publish as **`@hypabolic/crossbar`**.
 
 ---
 

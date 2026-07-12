@@ -195,8 +195,6 @@ class LlamaswapAdapter implements BackendAdapter {
     return data.map((entry) => ({
       id: entry.id,
       name: entry.id,
-      contextWindow: 8192,
-      maxTokens: 4096,
       input: ["text"] as ("text" | "image")[],
       reasoning: false,
     }));
@@ -286,7 +284,11 @@ class LlamaswapAdapter implements BackendAdapter {
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(_server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    return {
+    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
+    // the backend does not report them.  The cast is safe: Pi's compaction
+    // code treats missing / zero maxTokens as unbounded and falls back to 128k
+    // for contextWindow.
+    const entry = {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
@@ -296,10 +298,16 @@ class LlamaswapAdapter implements BackendAdapter {
       // .cached_tokens` to `Usage.cacheRead` and displays it regardless of cost. Keep
       // streaming usage reporting on so those prompt-cache hits are recorded.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? 8192,
-      maxTokens: model.maxTokens ?? 4096,
       compat: { supportsUsageInStreaming: true },
-    };
+    } as unknown as PiModelEntry;
+    // Only set contextWindow / maxTokens when the backend reports them.
+    if (model.contextWindow !== undefined) {
+      entry.contextWindow = model.contextWindow;
+    }
+    if (model.maxTokens !== undefined) {
+      entry.maxTokens = model.maxTokens;
+    }
+    return entry;
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------

@@ -147,17 +147,16 @@ describe("llamacpp maxTokens fix (regression)", () => {
   // -----------------------------------------------------------------------
   // Integration test: Crossbar ignores n_predict from /props
   // -----------------------------------------------------------------------
-  // This test proves that llamacpp.listModels() DOES fetch /props and
-  // reads n_ctx from it, but COMPLETELY IGNORES n_predict.  Instead it
-  // hardcodes maxTokens: 4096, causing Pi to cap output at ~4k tokens
-  // regardless of what the server was configured with.
+  // This test verifies that llamacpp.listModels() now correctly parses
+  // n_predict from /props and passes it through to maxTokens.
   //
-  // The fix must: (a) parse n_predict from /props, and (b) pass it
-  // through to the ModelDescriptor so toPiModel() can forward it.
+  // Before the fix: Crossbar ignored n_predict and hardcoded 4096.
+  // After the fix: Crossbar reads n_predict from /props (or --n-predict from args)
+  // and passes it through to the ModelDescriptor.
   // -----------------------------------------------------------------------
 
-  describe("listModels ignores n_predict from /props (bug)", () => {
-    it("returns maxTokens: 4096 even when /props declares n_predict: 32768", async () => {
+  describe("listModels correctly reads n_predict", () => {
+    it("returns maxTokens from /props n_predict when available", async () => {
       const { createFakeProbe } = await import("../conformance/fake-probe.ts");
 
       const server = makeServer();
@@ -170,15 +169,13 @@ describe("llamacpp maxTokens fix (regression)", () => {
       expect(models.length).toBe(1);
 
       // The /props response explicitly sets n_predict to 32768.
-      // Before the fix, Crossbar IGNORES this and returns 4096.
-      const entry = models[0];
+      // After the fix, Crossbar reads this value.
+      const entry = models[0]!;
 
-      // BUG: Crossbar ignores n_predict and hardcodes 4096.
-      // After the fix, this should be 32768 (or undefined if omitted).
-      expect(entry.maxTokens).toBe(4096);  // ← PROVES the bug!
+      // FIXED: maxTokens should be 32768 (from /props n_predict).
+      expect(entry.maxTokens).toBe(32768);
 
       // The contextWindow IS read from n_ctx (128000 in the fixture).
-      // So Crossbar reads SOME values from /props but NOT n_predict.
       expect(entry.contextWindow).toBe(128000);
 
       // Verify the /props response actually contains n_predict: 32768.
@@ -186,7 +183,7 @@ describe("llamacpp maxTokens fix (regression)", () => {
       expect(propsJson?.n_predict).toBe(32768);
     });
 
-    it("returns maxTokens: 4096 when /props omits n_predict entirely", async () => {
+    it("returns undefined maxTokens when /props omits n_predict", async () => {
       const { createFakeProbe } = await import("../conformance/fake-probe.ts");
 
       const server = makeServer();
@@ -214,8 +211,10 @@ describe("llamacpp maxTokens fix (regression)", () => {
       const models = await llamacppAdapter.listModels(server, { mode: "none" }, probe);
       expect(models.length).toBe(1);
 
-      // Before the fix: Crossbar returns 4096 regardless.
-      expect(models[0].maxTokens).toBe(4096);
+      // After the fix: maxTokens should be undefined (no n_predict reported).
+      // The contextWindow IS read from n_ctx (8192 in this fixture).
+      expect(models[0]!.maxTokens).toBeUndefined();
+      expect(models[0]!.contextWindow).toBe(8192);
     });
   });
 });
