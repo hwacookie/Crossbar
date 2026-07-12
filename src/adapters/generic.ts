@@ -24,13 +24,6 @@ import type {
 } from "../core/types.ts";
 
 // ---------------------------------------------------------------------------
-// Conservative defaults — applied when the backend doesn't report metadata
-// ---------------------------------------------------------------------------
-
-const DEFAULT_CONTEXT_WINDOW = 8192;
-const DEFAULT_MAX_TOKENS = 4096;
-
-// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -122,37 +115,41 @@ class GenericAdapter implements BackendAdapter {
         const isEmbedding =
           /(^|[/:._-])(embed|embedding|bge|gte|e5|reranker)([/:._-]|$)/.test(normalizedId) ||
           normalizedId.includes("nomic-embed");
-        return {
+        const desc: ModelDescriptor = {
           id: item.id,
           name: item.id,
-          contextWindow: DEFAULT_CONTEXT_WINDOW,
-          maxTokens: DEFAULT_MAX_TOKENS,
           input: ["text"],
           reasoning: false,
           embeddings: isEmbedding,
           raw: item,
         };
+        return desc;
       });
   }
 
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    return {
+    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
+    // the backend does not report them.  The cast is safe: Pi's compaction
+    // code treats missing / zero maxTokens as unbounded and falls back to 128k
+    // for contextWindow.
+    const entry = {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? model.input : ["text"],
-      // Local inference is free → per-token costs are zero, but cache-hit token
-      // COUNTS still matter: Pi maps any `usage.prompt_tokens_details.cached_tokens` the
-      // backend reports to `Usage.cacheRead` and displays it regardless of cost. The
-      // flag only asks for usage in streaming (never fabricates), so it is safe even for
-      // unknown OpenAI-compatible servers that may not report cache hits.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-      maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
       compat: { supportsUsageInStreaming: true },
-    };
+    } as unknown as PiModelEntry;
+    // Only set contextWindow / maxTokens when the backend reports them.
+    if (model.contextWindow !== undefined) {
+      entry.contextWindow = model.contextWindow;
+    }
+    if (model.maxTokens !== undefined) {
+      entry.maxTokens = model.maxTokens;
+    }
+    return entry;
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------

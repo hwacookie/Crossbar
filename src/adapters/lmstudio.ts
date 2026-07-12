@@ -347,24 +347,26 @@ class LmStudioAdapter implements BackendAdapter {
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(_server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    return {
+    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
+    // the backend does not report them.  The cast is safe: Pi's compaction
+    // code treats missing / zero maxTokens as unbounded and falls back to 128k
+    // for contextWindow.
+    const entry = {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? (model.input as ("text" | "image")[]) : ["text"],
-      // Local inference is free, so per-token COSTS are zero. The cache-hit token
-      // COUNTS still flow and are worth recording: LM Studio's OpenAI-compatible
-      // responses report `usage.prompt_tokens_details.cached_tokens`, which Pi maps to
-      // `Usage.cacheRead` and surfaces in the TUI regardless of cost. Keep usage
-      // reporting on during streaming so those automatic-prefix-cache hits are
-      // recorded. We intentionally do NOT set `cacheControlFormat`: LM Studio (llama.cpp
-      // engine) caches matching prefixes automatically, so injecting Anthropic-style
-      // `cache_control` markers would be wrong for this OpenAI-completions backend.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? 8192,
-      maxTokens: model.maxTokens ?? 4096,
       compat: { supportsUsageInStreaming: true },
-    };
+    } as unknown as PiModelEntry;
+    // Only set contextWindow / maxTokens when the backend reports them.
+    if (model.contextWindow !== undefined) {
+      entry.contextWindow = model.contextWindow;
+    }
+    if (model.maxTokens !== undefined) {
+      entry.maxTokens = model.maxTokens;
+    }
+    return entry;
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------

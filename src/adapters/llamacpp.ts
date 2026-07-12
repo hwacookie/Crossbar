@@ -126,18 +126,19 @@ class LlamacppAdapter implements BackendAdapter {
       props!.modalities!.some((m) => m.toLowerCase().includes("vision") || m.toLowerCase().includes("image"));
 
     return data.map((entry) => {
-      const contextWindow =
-        propsNCtx ??
-        entry.meta?.n_ctx_train ??
-        8192;
       const descriptor: ModelDescriptor = {
         id: entry.id,
         name: entry.id,
-        contextWindow,
-        maxTokens: 4096,
         input: hasVision ? (["text", "image"] as ("text" | "image")[]) : (["text"] as ("text" | "image")[]),
         reasoning: false,
       };
+      // Only set contextWindow when the backend reports it.
+      // When undefined, Pi uses its own fallback (128k) for compaction
+      // and no cap (POSITIVE_INFINITY) for maxTokens.
+      const ctx = propsNCtx ?? entry.meta?.n_ctx_train;
+      if (ctx !== undefined) {
+        descriptor.contextWindow = ctx;
+      }
       return descriptor;
     });
   }
@@ -192,20 +193,28 @@ class LlamacppAdapter implements BackendAdapter {
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(_server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    return {
+    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
+    // the backend does not report them.  The cast is safe: Pi's compaction
+    // code treats missing / zero maxTokens as unbounded and falls back to 128k
+    // for contextWindow.
+    const entry = {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? model.input : ["text"],
-      // Local inference is free → per-token costs are zero, but cache-hit token
-      // COUNTS still matter: Pi maps the backend's `usage.prompt_tokens_details
-      // .cached_tokens` to `Usage.cacheRead` and displays it regardless of cost. Keep
-      // streaming usage reporting on so those prompt-cache hits are recorded.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? 8192,
-      maxTokens: model.maxTokens ?? 4096,
       compat: { supportsUsageInStreaming: true },
-    };
+    } as unknown as PiModelEntry;
+    // Only set contextWindow / maxTokens when the backend reports them.
+    // When omitted, Pi uses its own fallback (128k for contextWindow,
+    // no cap / POSITIVE_INFINITY for maxTokens).
+    if (model.contextWindow !== undefined) {
+      entry.contextWindow = model.contextWindow;
+    }
+    if (model.maxTokens !== undefined) {
+      entry.maxTokens = model.maxTokens;
+    }
+    return entry;
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------

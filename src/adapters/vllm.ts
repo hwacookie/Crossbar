@@ -50,8 +50,7 @@ interface VllmModelsResponse {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_CONTEXT_WINDOW = 8192;
-const DEFAULT_MAX_TOKENS = 4096;
+
 
 // ---------------------------------------------------------------------------
 // VllmAdapter
@@ -156,37 +155,46 @@ class VllmAdapter implements BackendAdapter {
     const rawModels = body?.data ?? [];
 
     return rawModels.map((m): ModelDescriptor => {
-      return {
+      const desc: ModelDescriptor = {
         id: m.id,
         name: m.id,
-        contextWindow: typeof m.max_model_len === "number" ? m.max_model_len : DEFAULT_CONTEXT_WINDOW,
-        maxTokens: DEFAULT_MAX_TOKENS,
         input: ["text"],
         reasoning: false,
         embeddings: false,
         raw: m,
       };
+      // Only set contextWindow when the backend reports it.
+      const ctx = typeof m.max_model_len === "number" ? m.max_model_len : undefined;
+      if (ctx !== undefined) {
+        desc.contextWindow = ctx;
+      }
+      return desc;
     });
   }
 
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(_server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    return {
+    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
+    // the backend does not report them.  The cast is safe: Pi's compaction
+    // code treats missing / zero maxTokens as unbounded and falls back to 128k
+    // for contextWindow.
+    const entry = {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? model.input : ["text"],
-      // Local inference is free → per-token costs are zero, but cache-hit token
-      // COUNTS still matter: Pi maps the backend's `usage.prompt_tokens_details
-      // .cached_tokens` to `Usage.cacheRead` and displays it regardless of cost. vLLM
-      // reports cached tokens from its automatic prefix cache; keep streaming usage
-      // reporting on so those hits are recorded.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-      maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
       compat: { supportsUsageInStreaming: true },
-    };
+    } as unknown as PiModelEntry;
+    // Only set contextWindow / maxTokens when the backend reports them.
+    if (model.contextWindow !== undefined) {
+      entry.contextWindow = model.contextWindow;
+    }
+    if (model.maxTokens !== undefined) {
+      entry.maxTokens = model.maxTokens;
+    }
+    return entry;
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------
