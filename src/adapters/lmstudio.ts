@@ -356,6 +356,15 @@ class LmStudioAdapter implements BackendAdapter {
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? (model.input as ("text" | "image")[]) : ["text"],
+      
+      // Local inference is free, so per-token COSTS are zero. The cache-hit token
+      // COUNTS still flow and are worth recording: LM Studio's OpenAI-compatible
+      // responses report `usage.prompt_tokens_details.cached_tokens`, which Pi maps to
+      // `Usage.cacheRead` and surfaces in the TUI regardless of cost. Keep usage
+      // reporting on during streaming so those automatic-prefix-cache hits are
+      // recorded. We intentionally do NOT set `cacheControlFormat`: LM Studio (llama.cpp
+      // engine) caches matching prefixes automatically, so injecting Anthropic-style
+      // `cache_control` markers would be wrong for this OpenAI-completions backend.      
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       compat: { supportsUsageInStreaming: true },
     } as unknown as PiModelEntry;

@@ -178,6 +178,11 @@ class OpenAiAdapter implements BackendAdapter {
       name: model.name,
       reasoning: model.reasoning ?? false,
       input: model.input.length > 0 ? model.input : ["text"],
+      // Local inference is free → per-token costs are zero, but cache-hit token
+      // COUNTS still matter: Pi maps the backend's `usage.prompt_tokens_details
+      // .cached_tokens` to `Usage.cacheRead` and displays it regardless of cost. vLLM
+      // reports cached tokens from its automatic prefix cache; keep streaming usage
+      // reporting on so those hits are recorded.      
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     } as unknown as PiModelEntry;
     // Only set contextWindow / maxTokens when the backend reports them.

@@ -1,6 +1,7 @@
 .pi-reference/
 node_modules/
 dist/
+.vscode
 *.log
 .DS_Store
 RELEASE_NOTES.md
