@@ -37,12 +37,55 @@ interface RunningBody {
 interface V1ModelsBody {
   data?: Array<{
     id: string;
+    name?: unknown;
+    context_length?: number | null;
+    architecture?: unknown;
+    capabilities?: unknown;
+    supported_parameters?: unknown;
+    status?: unknown;
+    meta?: Record<string, unknown> | null;
   }>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function objectProperty(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function modelName(id: string, name: unknown): string {
+  if (typeof name !== "string") return id;
+  const trimmed = name.trim();
+  return trimmed.length > 0 ? trimmed : id;
+}
+
+function modelInput(
+  architecture: unknown,
+  capabilities: unknown,
+): ("text" | "image")[] {
+  const modalities = objectProperty(architecture, "input_modalities");
+  const supportsImage = Array.isArray(modalities)
+    ? modalities.includes("image")
+    : objectProperty(capabilities, "vision") === true;
+  return supportsImage ? ["text", "image"] : ["text"];
+}
+
+function modelSupportsTools(capabilities: unknown, supportedParameters: unknown): boolean {
+  const functionCalling = objectProperty(capabilities, "function_calling");
+  return typeof functionCalling === "boolean"
+    ? functionCalling
+    : Array.isArray(supportedParameters) && supportedParameters.includes("tools");
+}
+
+function modelLoaded(status: unknown): boolean | undefined {
+  const value = objectProperty(status, "value");
+  if (value === "loaded") return true;
+  if (value === "unloaded") return false;
+  return undefined;
+}
 
 /**
  * True when a parsed /running body matches a llama-swap shape — an array of upstreams,
@@ -192,12 +235,28 @@ class LlamaswapAdapter implements BackendAdapter {
     }
     const body = r.json as V1ModelsBody | undefined;
     const data = body?.data ?? [];
-    return data.map((entry) => ({
-      id: entry.id,
-      name: entry.id,
-      input: ["text"] as ("text" | "image")[],
-      reasoning: false,
-    }));
+    return data.map((entry) => {
+      const contextWindow =
+        typeof entry.context_length === "number" &&
+        Number.isSafeInteger(entry.context_length) &&
+        entry.context_length > 0
+          ? entry.context_length
+          : undefined;
+      const descriptor: ModelDescriptor = {
+        id: entry.id,
+        name: modelName(entry.id, entry.name),
+        input: modelInput(entry.architecture, entry.capabilities),
+        reasoning: false,
+      };
+
+      if (contextWindow !== undefined) descriptor.contextWindow = contextWindow;
+      if (modelSupportsTools(entry.capabilities, entry.supported_parameters)) {
+        descriptor.tools = true;
+      }
+      const loaded = modelLoaded(entry.status);
+      if (loaded !== undefined) descriptor.loaded = loaded;
+      return descriptor;
+    });
   }
 
   // --- introspectLoaded -----------------------------------------------------
@@ -284,11 +343,7 @@ class LlamaswapAdapter implements BackendAdapter {
   // --- toPiModel ------------------------------------------------------------
 
   toPiModel(_server: DiscoveredServer, model: ModelDescriptor): PiModelEntry {
-    // PiModelEntry requires contextWindow / maxTokens, but we omit them when
-    // the backend does not report them.  The cast is safe: Pi's compaction
-    // code treats missing / zero maxTokens as unbounded and falls back to 128k
-    // for contextWindow.
-    const entry = {
+    return {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning ?? false,
@@ -298,16 +353,20 @@ class LlamaswapAdapter implements BackendAdapter {
       // .cached_tokens` to `Usage.cacheRead` and displays it regardless of cost. Keep
       // streaming usage reporting on so those prompt-cache hits are recorded.
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow:
+        model.contextWindow !== undefined &&
+        Number.isSafeInteger(model.contextWindow) &&
+        model.contextWindow > 0
+          ? model.contextWindow
+          : 128_000,
+      maxTokens:
+        model.maxTokens !== undefined &&
+        Number.isSafeInteger(model.maxTokens) &&
+        model.maxTokens > 0
+          ? model.maxTokens
+          : 0,
       compat: { supportsUsageInStreaming: true },
-    } as unknown as PiModelEntry;
-    // Only set contextWindow / maxTokens when the backend reports them.
-    if (model.contextWindow !== undefined) {
-      entry.contextWindow = model.contextWindow;
-    }
-    if (model.maxTokens !== undefined) {
-      entry.maxTokens = model.maxTokens;
-    }
-    return entry;
+    };
   }
 
   // --- inferenceBaseUrl -----------------------------------------------------
