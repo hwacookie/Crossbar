@@ -18,7 +18,7 @@ adapter registers under (`oai` = `openai-completions`, `ant` = `anthropic-messag
 | **oobabooga** | 5000 | oai | ✅ `/v1/models` | ✅ `/v1/internal/model/info` | ✅ load | ✅ `/v1/internal/model/{load,unload}` | ❌ | ◐ `--api-key` | ◐ | ◐ | ✅ | `/v1/internal/*` namespace |
 | **Jan** | 1337 | oai | ✅ `/v1/models` | ◐ | ◐ engine | ◐ engine | ❌ | ◐ Bearer | ❌ | ◐ | ✅ | weak (log line) |
 | **llamafile** | 8080 | oai | ✅ `/v1/models` | ◐ `/props` | ❌ | ❌ | ❌ (always on) | ◐ `--api-key` | ✅ `/health` | ◐ via `/props` | ✅ | `/props` w/ non-`bNNNN` build_info |
-| **Unsloth Studio** | 8888 | oai | ✅ `/v1/models` (keyed) | ✅ per-model `loaded` field | ❌ (UI-only) | ❌ (UI-only) | ✅ `/api/settings/openai-auto-switch` | ✅ Bearer `sk-unsloth-…` (required) | ❌ (poll via listModels) | ◐ ctx fields only while loaded | ✅ | `Server: unsloth-studio` header (every response) |
+| **Unsloth Studio** | 8888 | oai | ✅ `/v1/models` (keyed) | ✅ per-model `loaded` field | ❌ (UI-only) | ❌ (UI-only) | ✅ `/api/settings/openai-auto-switch` | ✅ Bearer `sk-unsloth-…` (required) | ❌ (poll via listModels) | ◐ ctx fields only while loaded; vision + reasoning for the active model via `/api/inference/status` (#35, #37) — both best-effort | ✅ | `Server: unsloth-studio` header (every response) |
 | **generic OpenAI-compat** | varies | oai | ✅ `/v1/models` | ❌ | ❌ | ❌ | ❌ | ◐ optional Bearer | ◐ | ◐ | ✅ | anything serving `/v1/models` (fallback) |
 
 ## Capability-driven UX rules (derived)
